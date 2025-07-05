@@ -30,7 +30,6 @@
 </template>
 <script lang="ts" setup>
 import { PropType } from 'vue'
-import { copyValueToTarget } from '@/utils'
 import { propTypes } from '@/utils/propTypes'
 import type { Spu } from '@/api/mall/product/spu'
 import * as ExpressTemplateApi from '@/api/mall/trade/delivery/expressTemplate'
@@ -62,14 +61,37 @@ const rules = reactive({
 watch(
   () => props.propFormData,
   (data) => {
-    if (!data) {
-      return
-    }
-    copyValueToTarget(formData, data)
+    if (!data) return
+    console.log('DeliveryForm接收到的数据:', {
+      deliveryTypes: data.deliveryTypes,
+      deliveryTemplateId: data.deliveryTemplateId
+    })
+    
+    // 直接设置数据，不使用copyValueToTarget
+    formData.deliveryTypes = data.deliveryTypes || []
+    formData.deliveryTemplateId = data.deliveryTemplateId
+    
+    // 延迟触发响应式更新
+    setTimeout(() => {
+      // 触发组件重新渲染
+      Object.assign(formData, { ...formData })
+    }, 100)
   },
   {
-    immediate: true
+    immediate: true,
+    deep: true
   }
+)
+
+/** 监听formData变化，同步到父组件 */
+watch(
+  formData,
+  (newData) => {
+    if (props.propFormData) {
+      Object.assign(props.propFormData, newData)
+    }
+  },
+  { deep: true }
 )
 
 /** 表单校验 */
@@ -86,7 +108,7 @@ const validate = async () => {
     throw e // 目的截断之后的校验
   }
 }
-defineExpose({ validate })
+defineExpose({ validate, formData })
 
 /** 初始化 */
 const deliveryTemplateList = ref([]) // 运费模版

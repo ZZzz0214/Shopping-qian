@@ -81,6 +81,7 @@ import DeliveryForm from './DeliveryForm.vue'
 import NotesForm from './NotesForm.vue'
 import DataForm from './DataForm.vue'
 import { convertToInteger, floatToFixed2, formatToFraction } from '@/utils'
+import FormPersistence from '@/utils/formPersistence'
 
 defineOptions({ name: 'ProductSpuForm' })
 
@@ -93,6 +94,7 @@ const { delView } = useTagsViewStore() // 视图操作
 const formLoading = ref(false) // 表单的加载中：1）修改时的数据加载；2）提交的按钮禁用
 const activeName = ref('info') // Tag 激活的窗口
 const isDetail = ref(false) // 是否查看详情
+const formPersistence = FormPersistence.getInstance() // 表单数据持久化实例
 const infoRef = ref() // 商品信息 Ref
 const skuRef = ref() // 商品规格 Ref
 const deliveryRef = ref() // 物流设置 Ref
@@ -347,6 +349,9 @@ const submitForm = async () => {
     if (!id) {
       await ProductSpuApi.createSpu(data)
       message.success(t('common.createSuccess'))
+      // 提交成功后清除保存的数据
+      const pageKey = FormPersistence.generatePageKey(name as string, params)
+      formPersistence.clearFormData(pageKey)
     } else {
       await ProductSpuApi.updateSpu(data)
       message.success(t('common.updateSuccess'))
@@ -359,9 +364,71 @@ const submitForm = async () => {
 
 /** 关闭按钮 */
 const close = () => {
+  // 如果是新增页面，清除保存的数据
+  if (name === 'ProductSpuAdd') {
+    const pageKey = FormPersistence.generatePageKey(name as string, params)
+    formPersistence.clearFormData(pageKey)
+  }
   // 返回商品列表页面
   push({ path: '/mall/product/spu' })
 }
+
+/** 监听formData变化，自动保存数据 */
+watch(
+  formData,
+  (newData) => {
+    if (name === 'ProductSpuAdd' && !isDetail.value && newData.name) {
+      const pageKey = FormPersistence.generatePageKey(name as string, params)
+      formPersistence.saveFormData(pageKey, newData)
+    }
+  },
+  { deep: true }
+)
+
+/** 页面激活时恢复数据 */
+onActivated(() => {
+  if (name === 'ProductSpuAdd' && !isDetail.value) {
+    const pageKey = FormPersistence.generatePageKey(name as string, params)
+    const savedData = formPersistence.getFormData(pageKey)
+    if (savedData) {
+      // 恢复表单数据
+      Object.assign(formData.value, savedData)
+      // 强制触发子组件更新
+      nextTick(() => {
+        // 触发所有子组件的响应式更新
+        if (infoRef.value) {
+          Object.assign(infoRef.value.formData, savedData)
+        }
+        if (skuRef.value) {
+          Object.assign(skuRef.value.formData, savedData)
+        }
+        if (deliveryRef.value) {
+          Object.assign(deliveryRef.value.formData, savedData)
+        }
+        if (descriptionRef.value) {
+          Object.assign(descriptionRef.value.formData, savedData)
+        }
+        if (notesRef.value) {
+          Object.assign(notesRef.value.formData, savedData)
+        }
+        if (dataRef.value) {
+          Object.assign(dataRef.value.formData, savedData)
+        }
+        if (otherRef.value) {
+          Object.assign(otherRef.value.formData, savedData)
+        }
+      })
+    }
+  }
+})
+
+/** 页面失活时保存数据 */
+onDeactivated(() => {
+  if (name === 'ProductSpuAdd' && !isDetail.value && formData.value.name) {
+    const pageKey = FormPersistence.generatePageKey(name as string, params)
+    formPersistence.saveFormData(pageKey, formData.value)
+  }
+})
 
 /** 初始化 */
 onMounted(async () => {
@@ -370,6 +437,26 @@ onMounted(async () => {
   // 如果没有复制数据，则获取详情
   if (!query.copyDataId) {
     await getDetail()
+  }
+  
+  // 如果是新增页面，尝试恢复表单数据
+  if (name === 'ProductSpuAdd' && !query.copyDataId) {
+    const pageKey = FormPersistence.generatePageKey(name as string, params)
+    const savedData = formPersistence.getFormData(pageKey)
+    if (savedData) {
+      // 恢复表单数据
+      Object.assign(formData.value, savedData)
+      message.success('已恢复上次编辑的数据')
+    }
+  }
+})
+
+/** 页面离开前保存数据 */
+onBeforeUnmount(() => {
+  // 如果是新增页面且有数据，保存到本地存储
+  if (name === 'ProductSpuAdd' && formData.value.name) {
+    const pageKey = FormPersistence.generatePageKey(name as string, params)
+    formPersistence.saveFormData(pageKey, formData.value)
   }
 })
 </script>

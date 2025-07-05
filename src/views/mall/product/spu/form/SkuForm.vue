@@ -56,7 +56,6 @@
 </template>
 <script lang="ts" setup>
 import { PropType } from 'vue'
-import { copyValueToTarget } from '@/utils'
 import { propTypes } from '@/utils/propTypes'
 import {
   getPropertyList,
@@ -140,16 +139,42 @@ const rules = reactive({
 watch(
   () => props.propFormData,
   (data) => {
-    if (!data) {
-      return
-    }
-    copyValueToTarget(formData, data)
+    if (!data) return
+    console.log('SkuForm接收到的数据:', {
+      specType: data.specType,
+      subCommissionType: data.subCommissionType,
+      skus: data.skus
+    })
+    
+    // 直接设置数据，不使用copyValueToTarget
+    formData.specType = data.specType || false
+    formData.subCommissionType = data.subCommissionType || false
+    formData.skus = data.skus || []
+    
+    // 延迟触发响应式更新
+    setTimeout(() => {
+      // 触发组件重新渲染
+      Object.assign(formData, { ...formData })
+    }, 100)
+    
     // 将 SKU 的属性，整理成 PropertyAndValues 数组
     propertyList.value = getPropertyList(data)
   },
   {
-    immediate: true
+    immediate: true,
+    deep: true
   }
+)
+
+/** 监听formData变化，同步到父组件 */
+watch(
+  formData,
+  (newData) => {
+    if (props.propFormData) {
+      Object.assign(props.propFormData, newData)
+    }
+  },
+  { deep: true }
 )
 
 
@@ -170,7 +195,7 @@ const validate = async () => {
     throw e // 目的截断之后的校验
   }
 }
-defineExpose({ validate })
+defineExpose({ validate, formData })
 
 /** 分销类型 */
 const changeSubCommissionType = () => {

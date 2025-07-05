@@ -191,6 +191,17 @@ watch(
   }
 )
 
+/** 监听formData变化，同步到父组件 */
+watch(
+  formData,
+  (newData) => {
+    if (props.propFormData) {
+      Object.assign(props.propFormData, newData)
+    }
+  },
+  { deep: true }
+)
+
 /** 表单校验 */
 const emit = defineEmits(['update:activeName'])
 const validate = async () => {
@@ -205,7 +216,7 @@ const validate = async () => {
     throw e // 目的截断之后的校验
   }
 }
-defineExpose({ validate })
+defineExpose({ validate, formData })
 
 /** 初始化 */
 const brandList = ref<BrandVO[]>([]) // 商品品牌列表

@@ -31,7 +31,6 @@
 import type { Spu } from '@/api/mall/product/spu'
 import { PropType } from 'vue'
 import { propTypes } from '@/utils/propTypes'
-import { copyValueToTarget } from '@/utils'
 
 defineOptions({ name: 'ProductOtherForm' })
 
@@ -63,14 +62,39 @@ const rules = reactive({
 watch(
   () => props.propFormData,
   (data) => {
-    if (!data) {
-      return
-    }
-    copyValueToTarget(formData.value, data)
+    if (!data) return
+    console.log('OtherForm接收到的数据:', {
+      sort: data.sort,
+      giveIntegral: data.giveIntegral,
+      virtualSalesCount: data.virtualSalesCount
+    })
+    
+    // 直接设置数据，不使用copyValueToTarget
+    formData.value.sort = data.sort || 0
+    formData.value.giveIntegral = data.giveIntegral || 0
+    formData.value.virtualSalesCount = data.virtualSalesCount || 0
+    
+    // 延迟触发响应式更新
+    setTimeout(() => {
+      // 触发组件重新渲染
+      formData.value = { ...formData.value }
+    }, 100)
   },
   {
-    immediate: true
+    immediate: true,
+    deep: true
   }
+)
+
+/** 监听formData变化，同步到父组件 */
+watch(
+  formData,
+  (newData) => {
+    if (props.propFormData) {
+      Object.assign(props.propFormData, newData)
+    }
+  },
+  { deep: true }
 )
 
 /** 表单校验 */
@@ -87,5 +111,5 @@ const validate = async () => {
     throw e // 目的截断之后的校验
   }
 }
-defineExpose({ validate })
+defineExpose({ validate, formData })
 </script>
