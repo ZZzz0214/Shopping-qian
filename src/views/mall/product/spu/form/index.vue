@@ -61,6 +61,9 @@
     </el-tabs>
     <el-form>
       <el-form-item style="float: right">
+        <el-button v-if="!isDetail" type="warning" @click="clearForm" :disabled="formLoading">
+          清空
+        </el-button>
         <el-button v-if="!isDetail" :loading="formLoading" type="primary" @click="submitForm">
           保存
         </el-button>
@@ -71,6 +74,7 @@
 </template>
 <script lang="ts" setup>
 import { cloneDeep } from 'lodash-es'
+import { ElMessageBox } from 'element-plus'
 import { useTagsViewStore } from '@/store/modules/tagsView'
 import * as ProductSpuApi from '@/api/mall/product/spu'
 import InfoForm from './InfoForm.vue'
@@ -95,6 +99,7 @@ const formLoading = ref(false) // 表单的加载中：1）修改时的数据加
 const activeName = ref('info') // Tag 激活的窗口
 const isDetail = ref(false) // 是否查看详情
 const formPersistence = FormPersistence.getInstance() // 表单数据持久化实例
+const copyDataProcessed = ref(false) // 标记是否已处理复制数据
 const infoRef = ref() // 商品信息 Ref
 const skuRef = ref() // 商品规格 Ref
 const deliveryRef = ref() // 物流设置 Ref
@@ -181,18 +186,36 @@ const getDetail = async () => {
 /** 处理复制的数据 */
 const handleCopyData = () => {
   // 检查URL参数中是否有copyDataId
-  if (query.copyDataId) {
+  if (query.copyDataId && !copyDataProcessed.value) {
     try {
-      // 从sessionStorage获取数据
-      const copyDataString = sessionStorage.getItem(query.copyDataId as string)
+      console.log('开始处理复制数据，copyDataId:', query.copyDataId)
+      
+      let copyDataString = null
+      let dataSource = ''
+      
+      // 优先从localStorage获取数据（用于页面切换后恢复）
+      const localStorageKey = `copy_spu_data_${query.copyDataId}`
+      copyDataString = localStorage.getItem(localStorageKey)
+      if (copyDataString) {
+        dataSource = 'localStorage'
+        console.log('从localStorage获取到数据，长度:', copyDataString.length)
+      } else {
+        // 如果localStorage中没有，则从sessionStorage获取数据
+        copyDataString = sessionStorage.getItem(query.copyDataId as string)
+        if (copyDataString) {
+          dataSource = 'sessionStorage'
+          console.log('从sessionStorage获取到数据，长度:', copyDataString.length)
+        }
+      }
+      
       if (!copyDataString) {
-        message.error('获取复制数据失败')
+        console.error('localStorage和sessionStorage中都没有找到复制数据:', query.copyDataId)
+        message.error('获取复制数据失败，请重新复制商品')
         return
       }
       
       const copyData = JSON.parse(copyDataString)
-      // 使用完后移除sessionStorage中的数据
-      sessionStorage.removeItem(query.copyDataId as string)
+      console.log('解析复制数据成功，数据源:', dataSource, '商品名称:', copyData.name)
       
       // 处理SKU数据的价格转换
       if (copyData.skus && copyData.skus.length > 0) {
@@ -262,13 +285,14 @@ const handleCopyData = () => {
       
       // 输出调试信息
       console.log('处理后的复制数据:', JSON.stringify({
+        name: copyData.name,
         description: copyData.description,
         notes: copyData.notes,
         data: copyData.data,
         priceNote: copyData.priceNote
       }))
       
-      // 直接复制数据到formData，不使用copyValueToTarget函数
+      // 直接复制数据到formData
       Object.assign(formData.value, copyData)
       
       // 强制触发响应式更新，确保子组件能接收到数据
@@ -297,9 +321,26 @@ const handleCopyData = () => {
           formData.value.priceNote = copyData.priceNote
         }
       }, 100)
+      
+      // 如果数据来自sessionStorage，则保存到localStorage以确保页面切换后数据不丢失
+      if (dataSource === 'sessionStorage') {
+        const localStorageKey = `copy_spu_data_${query.copyDataId}`
+        localStorage.setItem(localStorageKey, JSON.stringify(copyData))
+        console.log('保存数据到localStorage，Key:', localStorageKey)
+        
+        // 延迟清除sessionStorage中的数据，确保数据已经完全加载
+        setTimeout(() => {
+          sessionStorage.removeItem(query.copyDataId as string)
+          console.log('已清除sessionStorage中的数据:', query.copyDataId)
+        }, 1000)
+      }
+      
+      // 标记已处理复制数据
+      copyDataProcessed.value = true
+      
     } catch (error) {
       console.error('复制数据解析失败:', error)
-      message.error('复制数据解析失败')
+      message.error('复制数据解析失败，请重新复制商品')
     }
   }
 }
@@ -350,8 +391,15 @@ const submitForm = async () => {
       await ProductSpuApi.createSpu(data)
       message.success(t('common.createSuccess'))
       // 提交成功后清除保存的数据
-      const pageKey = FormPersistence.generatePageKey(name as string, params)
+      const pageKey = FormPersistence.generatePageKey(name as string, params, query)
       formPersistence.clearFormData(pageKey)
+      
+      // 如果是复制新增，清除localStorage中的数据
+      if (query.copyDataId) {
+        const localStorageKey = `copy_spu_data_${query.copyDataId}`
+        localStorage.removeItem(localStorageKey)
+        console.log('提交成功后清除localStorage数据:', localStorageKey)
+      }
     } else {
       await ProductSpuApi.updateSpu(data)
       message.success(t('common.updateSuccess'))
@@ -362,13 +410,116 @@ const submitForm = async () => {
   }
 }
 
+/** 清空表单 */
+const clearForm = () => {
+  ElMessageBox.confirm('确定要清空所有表单数据吗？此操作不可恢复。', '确认清空', {
+    confirmButtonText: '确定',
+    cancelButtonText: '取消',
+    type: 'warning'
+  }).then(() => {
+    // 重置表单数据为初始状态
+    formData.value = {
+      name: '', // 商品名称
+      categoryId: undefined, // 商品分类
+      keyword: '', // 关键字
+      picUrl: '', // 商品封面图
+      sliderPicUrls: [], // 商品轮播图
+      introduction: '', // 商品简介
+      deliveryTypes: [], // 配送方式数组
+      deliveryTemplateId: undefined, // 运费模版
+      brandId: undefined, // 商品品牌
+      specType: false, // 商品规格
+      subCommissionType: false, // 分销类型
+      commission: 0, // 佣金字段
+      priceNote: '',
+      skus: [
+        {
+          price: 0, // 商品价格
+          marketPrice: 0, // 市场价
+          costPrice: 0, // 成本价
+          barCode: '', // 商品条码
+          picUrl: '', // 图片地址
+          stock: 0, // 库存
+          weight: 0, // 商品重量
+          volume: 0, // 商品体积
+          firstBrokeragePrice: 0, // 一级分销的佣金
+          secondBrokeragePrice: 0 // 二级分销的佣金
+        }
+      ],
+      description: '', // 商品详情
+      notes: '', // 商品笔记
+      data: '', // 商品数据
+      sort: 0, // 商品排序
+      giveIntegral: 0, // 赠送积分
+      virtualSalesCount: 0 // 虚拟销量
+    }
+    
+    // 清除所有子组件的表单验证状态
+    nextTick(() => {
+      if (infoRef.value) {
+        infoRef.value.$refs?.formRef?.clearValidate?.()
+      }
+      if (skuRef.value) {
+        skuRef.value.$refs?.formRef?.clearValidate?.()
+      }
+      if (deliveryRef.value) {
+        deliveryRef.value.$refs?.formRef?.clearValidate?.()
+      }
+      if (descriptionRef.value) {
+        descriptionRef.value.$refs?.formRef?.clearValidate?.()
+      }
+      if (notesRef.value) {
+        notesRef.value.$refs?.formRef?.clearValidate?.()
+      }
+      if (dataRef.value) {
+        dataRef.value.$refs?.formRef?.clearValidate?.()
+      }
+      if (otherRef.value) {
+        otherRef.value.$refs?.formRef?.clearValidate?.()
+      }
+    })
+    
+    // 清除保存的数据
+    if (name === 'ProductSpuAdd') {
+      const pageKey = FormPersistence.generatePageKey(name as string, params, query)
+      formPersistence.clearFormData(pageKey)
+      
+      // 如果是复制新增，清除localStorage中的数据
+      if (query.copyDataId) {
+        const localStorageKey = `copy_spu_data_${query.copyDataId}`
+        localStorage.removeItem(localStorageKey)
+        console.log('清空表单时清除localStorage数据:', localStorageKey)
+      }
+    }
+    
+    // 重置复制数据处理标志
+    copyDataProcessed.value = false
+    
+    // 重置当前激活的标签页
+    activeName.value = 'info'
+    
+    message.success('表单数据已清空')
+  }).catch(() => {
+    // 用户取消清空操作
+  })
+}
+
 /** 关闭按钮 */
 const close = () => {
   // 如果是新增页面，清除保存的数据
   if (name === 'ProductSpuAdd') {
-    const pageKey = FormPersistence.generatePageKey(name as string, params)
+    const pageKey = FormPersistence.generatePageKey(name as string, params, query)
     formPersistence.clearFormData(pageKey)
+    
+    // 如果是复制新增，清除localStorage中的数据
+    if (query.copyDataId) {
+      const localStorageKey = `copy_spu_data_${query.copyDataId}`
+      localStorage.removeItem(localStorageKey)
+      console.log('关闭页面时清除localStorage数据:', localStorageKey)
+    }
   }
+  // 重置复制数据处理标志
+  copyDataProcessed.value = false
   // 返回商品列表页面
   push({ path: '/mall/product/spu' })
 }
@@ -378,7 +529,7 @@ watch(
   formData,
   (newData) => {
     if (name === 'ProductSpuAdd' && !isDetail.value && newData.name) {
-      const pageKey = FormPersistence.generatePageKey(name as string, params)
+      const pageKey = FormPersistence.generatePageKey(name as string, params, query)
       formPersistence.saveFormData(pageKey, newData)
     }
   },
@@ -388,35 +539,74 @@ watch(
 /** 页面激活时恢复数据 */
 onActivated(() => {
   if (name === 'ProductSpuAdd' && !isDetail.value) {
-    const pageKey = FormPersistence.generatePageKey(name as string, params)
+    // 检查是否有复制数据
+    const hasCopyData = !!query.copyDataId
+    
+    if (hasCopyData) {
+      // 如果有复制数据，尝试从localStorage获取
+      const localStorageKey = `copy_spu_data_${query.copyDataId}`
+      const savedDataString = localStorage.getItem(localStorageKey)
+      
+      if (savedDataString) {
+        try {
+          const savedData = JSON.parse(savedDataString)
+          console.log('从localStorage恢复复制数据:', savedData.name)
+          
+          // 恢复表单数据
+          Object.assign(formData.value, savedData)
+          
+          // 强制触发响应式更新，确保子组件能接收到数据
+          nextTick(() => {
+            // 触发formData的深度更新
+            formData.value = { ...formData.value }
+            
+            // 延迟显示成功消息
+            setTimeout(() => {
+              message.success('已恢复商品数据')
+            }, 500)
+          })
+          
+          // 标记已处理复制数据
+          copyDataProcessed.value = true
+          
+          return
+        } catch (error) {
+          console.error('解析localStorage数据失败:', error)
+        }
+      }
+      
+      // 如果localStorage中没有数据，尝试从sessionStorage获取
+      if (!copyDataProcessed.value) {
+        const copyDataString = sessionStorage.getItem(query.copyDataId as string)
+        if (copyDataString) {
+          console.log('从sessionStorage恢复复制数据')
+          handleCopyData()
+          return
+        }
+      }
+      
+      // 如果都没有数据，说明数据丢失了
+      message.error('复制数据已丢失，请重新复制')
+      return
+    }
+    
+    // 如果没有复制数据，尝试恢复普通新增的持久化数据
+    const pageKey = FormPersistence.generatePageKey(name as string, params, query)
     const savedData = formPersistence.getFormData(pageKey)
+    
     if (savedData) {
       // 恢复表单数据
       Object.assign(formData.value, savedData)
-      // 强制触发子组件更新
+      
+      // 强制触发响应式更新，确保子组件能接收到数据
       nextTick(() => {
-        // 触发所有子组件的响应式更新
-        if (infoRef.value) {
-          Object.assign(infoRef.value.formData, savedData)
-        }
-        if (skuRef.value) {
-          Object.assign(skuRef.value.formData, savedData)
-        }
-        if (deliveryRef.value) {
-          Object.assign(deliveryRef.value.formData, savedData)
-        }
-        if (descriptionRef.value) {
-          Object.assign(descriptionRef.value.formData, savedData)
-        }
-        if (notesRef.value) {
-          Object.assign(notesRef.value.formData, savedData)
-        }
-        if (dataRef.value) {
-          Object.assign(dataRef.value.formData, savedData)
-        }
-        if (otherRef.value) {
-          Object.assign(otherRef.value.formData, savedData)
-        }
+        // 触发formData的深度更新
+        formData.value = { ...formData.value }
+        
+        // 延迟显示成功消息
+        setTimeout(() => {
+          message.success('已恢复商品数据')
+        }, 500)
       })
     }
   }
@@ -425,29 +615,86 @@ onActivated(() => {
 /** 页面失活时保存数据 */
 onDeactivated(() => {
   if (name === 'ProductSpuAdd' && !isDetail.value && formData.value.name) {
-    const pageKey = FormPersistence.generatePageKey(name as string, params)
+    // 保存到FormPersistence（用于普通新增）
+    const pageKey = FormPersistence.generatePageKey(name as string, params, query)
     formPersistence.saveFormData(pageKey, formData.value)
+    
+    // 如果是复制新增，同时保存到localStorage
+    if (query.copyDataId) {
+      const localStorageKey = `copy_spu_data_${query.copyDataId}`
+      localStorage.setItem(localStorageKey, JSON.stringify(formData.value))
+      console.log('页面失活时保存复制数据到localStorage:', localStorageKey)
+    }
   }
 })
 
 /** 初始化 */
 onMounted(async () => {
+  console.log('页面初始化，query:', query, 'name:', name)
+  
   // 先处理复制的数据，如果有的话
-  handleCopyData()
-  // 如果没有复制数据，则获取详情
-  if (!query.copyDataId) {
+  const hasCopyData = !!query.copyDataId
+  if (hasCopyData) {
+    console.log('检测到复制数据，开始处理')
+    
+    // 优先尝试从localStorage恢复数据（页面切换后恢复）
+    const localStorageKey = `copy_spu_data_${query.copyDataId}`
+    const savedDataString = localStorage.getItem(localStorageKey)
+    
+    if (savedDataString) {
+      try {
+        const savedData = JSON.parse(savedDataString)
+        console.log('从localStorage恢复复制数据:', savedData.name)
+        
+        // 恢复表单数据
+        Object.assign(formData.value, savedData)
+        
+        // 强制触发响应式更新，确保子组件能接收到数据
+        nextTick(() => {
+          formData.value = { ...formData.value }
+          setTimeout(() => {
+            message.success('已恢复商品数据')
+          }, 500)
+        })
+        
+        // 标记已处理复制数据
+        copyDataProcessed.value = true
+        return
+      } catch (error) {
+        console.error('解析localStorage数据失败:', error)
+      }
+    }
+    
+    // 如果localStorage中没有数据，尝试从sessionStorage获取（首次复制）
+    if (!copyDataProcessed.value) {
+      handleCopyData()
+    }
+  } else {
+    console.log('没有复制数据，获取详情')
+    // 如果没有复制数据，则获取详情
     await getDetail()
+    
+    // 如果是新增页面且没有复制数据，尝试恢复表单数据
+    if (name === 'ProductSpuAdd') {
+      const pageKey = FormPersistence.generatePageKey(name as string, params, query)
+      const savedData = formPersistence.getFormData(pageKey)
+      if (savedData) {
+        console.log('恢复持久化数据')
+        // 恢复表单数据
+        Object.assign(formData.value, savedData)
+        
+        // 强制触发响应式更新
+        nextTick(() => {
+          formData.value = { ...formData.value }
+          message.success('已恢复上次编辑的数据')
+        })
+      }
+    }
   }
   
-  // 如果是新增页面，尝试恢复表单数据
-  if (name === 'ProductSpuAdd' && !query.copyDataId) {
-    const pageKey = FormPersistence.generatePageKey(name as string, params)
-    const savedData = formPersistence.getFormData(pageKey)
-    if (savedData) {
-      // 恢复表单数据
-      Object.assign(formData.value, savedData)
-      message.success('已恢复上次编辑的数据')
-    }
+  // 重置复制数据处理标志
+  if (!hasCopyData) {
+    copyDataProcessed.value = false
   }
 })
 
@@ -455,8 +702,15 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   // 如果是新增页面且有数据，保存到本地存储
   if (name === 'ProductSpuAdd' && formData.value.name) {
-    const pageKey = FormPersistence.generatePageKey(name as string, params)
+    const pageKey = FormPersistence.generatePageKey(name as string, params, query)
     formPersistence.saveFormData(pageKey, formData.value)
+    
+    // 如果是复制新增，同时保存到localStorage
+    if (query.copyDataId) {
+      const localStorageKey = `copy_spu_data_${query.copyDataId}`
+      localStorage.setItem(localStorageKey, JSON.stringify(formData.value))
+      console.log('页面离开前保存复制数据到localStorage:', localStorageKey)
+    }
   }
 })
 </script>

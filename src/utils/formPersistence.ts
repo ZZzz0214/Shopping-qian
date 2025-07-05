@@ -105,11 +105,13 @@ class FormPersistence {
    * 生成页面唯一标识
    * @param routeName 路由名称
    * @param routeParams 路由参数
+   * @param routeQuery 路由查询参数
    * @returns 页面唯一标识
    */
-  public static generatePageKey(routeName: string, routeParams?: any): string {
+  public static generatePageKey(routeName: string, routeParams?: any, routeQuery?: any): string {
     const paramsStr = routeParams ? JSON.stringify(routeParams) : ''
-    return `${routeName}_${paramsStr}`
+    const queryStr = routeQuery ? JSON.stringify(routeQuery) : ''
+    return `${routeName}_${paramsStr}_${queryStr}`
   }
 
   /**
