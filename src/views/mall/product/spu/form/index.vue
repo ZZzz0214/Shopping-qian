@@ -87,7 +87,7 @@ defineOptions({ name: 'ProductSpuForm' })
 const { t } = useI18n() // 国际化
 const message = useMessage() // 消息弹窗
 const { push, currentRoute } = useRouter() // 路由
-const { params, name } = useRoute() // 查询参数
+const { params, name, query } = useRoute() // 查询参数
 const { delView } = useTagsViewStore() // 视图操作
 
 const formLoading = ref(false) // 表单的加载中：1）修改时的数据加载；2）提交的按钮禁用
@@ -176,6 +176,132 @@ const getDetail = async () => {
   }
 }
 
+/** 处理复制的数据 */
+const handleCopyData = () => {
+  // 检查URL参数中是否有copyDataId
+  if (query.copyDataId) {
+    try {
+      // 从sessionStorage获取数据
+      const copyDataString = sessionStorage.getItem(query.copyDataId as string)
+      if (!copyDataString) {
+        message.error('获取复制数据失败')
+        return
+      }
+      
+      const copyData = JSON.parse(copyDataString)
+      // 使用完后移除sessionStorage中的数据
+      sessionStorage.removeItem(query.copyDataId as string)
+      
+      // 处理SKU数据的价格转换
+      if (copyData.skus && copyData.skus.length > 0) {
+        copyData.skus.forEach((item: any) => {
+          // 价格分转元
+          item.price = formatToFraction(item.price)
+          item.marketPrice = formatToFraction(item.marketPrice)
+          item.costPrice = formatToFraction(item.costPrice)
+          item.firstBrokeragePrice = formatToFraction(item.firstBrokeragePrice)
+          item.secondBrokeragePrice = formatToFraction(item.secondBrokeragePrice)
+          
+          // 确保是数字类型
+          item.price = Number(item.price)
+          item.marketPrice = Number(item.marketPrice)
+          item.costPrice = Number(item.costPrice)
+          item.firstBrokeragePrice = Number(item.firstBrokeragePrice)
+          item.secondBrokeragePrice = Number(item.secondBrokeragePrice)
+          item.stock = Number(item.stock || 0)
+          item.weight = Number(item.weight || 0)
+          item.volume = Number(item.volume || 0)
+        })
+      }
+      // 处理佣金字段
+      if (copyData.commission !== undefined) {
+        copyData.commission = formatToFraction(copyData.commission)
+        // 确保是数字类型
+        copyData.commission = Number(copyData.commission)
+      }
+      // 处理轮播图数据格式
+      if (copyData.sliderPicUrls && copyData.sliderPicUrls.length > 0) {
+        // 确保sliderPicUrls是字符串数组而不是对象数组
+        copyData.sliderPicUrls = copyData.sliderPicUrls.map((url: any) => {
+          // 如果已经是字符串，直接返回
+          if (typeof url === 'string') {
+            return url
+          }
+          // 如果是对象，则返回url属性
+          return url.url || ''
+        })
+      } else {
+        copyData.sliderPicUrls = []
+      }
+      
+      // 确保所有文本字段都存在并有默认值
+      const textFields = ['notes', 'data', 'description', 'priceNote', 'introduction', 'keyword']
+      textFields.forEach(field => {
+        if (copyData[field] === undefined || copyData[field] === null) {
+          copyData[field] = ''
+        }
+      })
+      
+      // 确保必要的字段有默认值并且是正确的类型
+      if (!copyData.deliveryTypes) {
+        copyData.deliveryTypes = []
+      }
+      if (copyData.specType === undefined) {
+        copyData.specType = false
+      }
+      if (copyData.subCommissionType === undefined) {
+        copyData.subCommissionType = false
+      }
+      
+      // 确保数字类型字段是数字
+      copyData.sort = Number(copyData.sort || 0)
+      copyData.giveIntegral = Number(copyData.giveIntegral || 0)
+      copyData.virtualSalesCount = Number(copyData.virtualSalesCount || 0)
+      
+      // 输出调试信息
+      console.log('处理后的复制数据:', JSON.stringify({
+        description: copyData.description,
+        notes: copyData.notes,
+        data: copyData.data,
+        priceNote: copyData.priceNote
+      }))
+      
+      // 直接复制数据到formData，不使用copyValueToTarget函数
+      Object.assign(formData.value, copyData)
+      
+      // 强制触发响应式更新，确保子组件能接收到数据
+      nextTick(() => {
+        // 触发formData的深度更新
+        formData.value = { ...formData.value }
+        
+        // 延迟显示成功消息
+        setTimeout(() => {
+          message.success('已加载复制的商品数据')
+        }, 500)
+      })
+      
+      // 确保富文本编辑器字段有正确的初始值
+      setTimeout(() => {
+        if (copyData.notes !== undefined) {
+          formData.value.notes = copyData.notes
+        }
+        if (copyData.data !== undefined) {
+          formData.value.data = copyData.data
+        }
+        if (copyData.description !== undefined) {
+          formData.value.description = copyData.description
+        }
+        if (copyData.priceNote !== undefined) {
+          formData.value.priceNote = copyData.priceNote
+        }
+      }, 100)
+    } catch (error) {
+      console.error('复制数据解析失败:', error)
+      message.error('复制数据解析失败')
+    }
+  }
+}
+
 /** 提交按钮 */
 const submitForm = async () => {
   // 提交请求
@@ -233,12 +359,17 @@ const submitForm = async () => {
 
 /** 关闭按钮 */
 const close = () => {
-  delView(unref(currentRoute))
-  push({ name: 'ProductSpu' })
+  // 返回商品列表页面
+  push({ path: '/mall/product/spu' })
 }
 
 /** 初始化 */
 onMounted(async () => {
-  await getDetail()
+  // 先处理复制的数据，如果有的话
+  handleCopyData()
+  // 如果没有复制数据，则获取详情
+  if (!query.copyDataId) {
+    await getDetail()
+  }
 })
 </script>

@@ -3,7 +3,9 @@
   <el-form ref="formRef" :model="formData" :rules="rules" label-width="120px" :disabled="isDetail">
     <!--富文本编辑器组件-->
     <el-form-item label="商品笔记" prop="notes">
-      <Editor v-model:modelValue="formData.notes" />
+      <Editor 
+        v-model:modelValue="formData.notes" 
+      />
     </el-form-item>
   </el-form>
 </template>
@@ -12,9 +14,8 @@ import type { Spu } from '@/api/mall/product/spu'
 import { Editor } from '@/components/Editor'
 import { PropType } from 'vue'
 import { propTypes } from '@/utils/propTypes'
-import { copyValueToTarget } from '@/utils'
 
-defineOptions({ name: 'ProductDescriptionForm' })
+defineOptions({ name: 'ProductNotesForm' })
 
 const message = useMessage() // 消息弹窗
 
@@ -32,7 +33,8 @@ const formData = ref<Spu>({
 })
 // 表单规则
 const rules = reactive({
-  notes: [required]
+  // 将notes字段改为非必填，因为复制的商品可能没有笔记内容
+  // notes: [required]
 })
 
 /** 富文本编辑器如果输入过再清空会有残留，需再重置一次 */
@@ -54,12 +56,31 @@ watch(
   () => props.propFormData,
   (data) => {
     if (!data) return
-    // fix：三个表单组件监听赋值必须使用 copyValueToTarget 使用 formData.value = data 会监听非常多次
-    copyValueToTarget(formData.value, data)
+    // 确保notes字段存在
+    if (data.notes === undefined || data.notes === null) {
+      data.notes = ''
+    }
+    console.log('NotesForm接收到的数据:', data.notes)
+    
+    // 直接设置数据，不使用Object.assign
+    formData.value.notes = data.notes
+    
+    // 延迟触发响应式更新，确保Editor组件完全初始化
+    setTimeout(() => {
+      // 触发组件重新渲染
+      formData.value = { ...formData.value }
+    }, 100)
+    
+    // 额外延迟，确保富文本编辑器完全初始化
+    setTimeout(() => {
+      // 再次触发响应式更新
+      formData.value.notes = data.notes
+    }, 800)
   },
   {
     // fix: 去掉深度监听只有对象引用发生改变的时候才执行,解决改一动多的问题
-    immediate: true
+    immediate: true,
+    deep: true
   }
 )
 

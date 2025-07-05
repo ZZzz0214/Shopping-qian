@@ -98,7 +98,6 @@
 </template>
 <script lang="ts" setup>
 import { PropType } from 'vue'
-import { copyValueToTarget } from '@/utils'
 import { propTypes } from '@/utils/propTypes'
 import { defaultProps, handleTree } from '@/utils/tree'
 import type { Spu } from '@/api/mall/product/spu'
@@ -108,9 +107,6 @@ import * as ProductBrandApi from '@/api/mall/product/brand'
 import { BrandVO } from '@/api/mall/product/brand'
 import { useUserStore } from '@/store/modules/user'
 import { Editor } from '@/components/Editor'
-
-
-
 
 const userStore = useUserStore()
 
@@ -164,10 +160,34 @@ watch(
     if (data.priceNote === null || data.priceNote === undefined) {
       data.priceNote = ''
     }
-    copyValueToTarget(formData, data)
+    console.log('InfoForm接收到的priceNote:', data.priceNote)
+    
+    // 直接设置数据，不使用Object.assign
+    formData.priceNote = data.priceNote
+    formData.name = data.name || ''
+    formData.categoryId = data.categoryId
+    formData.keyword = data.keyword || ''
+    formData.introduction = data.introduction || ''
+    formData.picUrl = data.picUrl || ''
+    formData.sliderPicUrls = data.sliderPicUrls || []
+    formData.brandId = data.brandId
+    formData.commission = data.commission || 0
+    
+    // 延迟触发响应式更新，确保Editor组件完全初始化
+    setTimeout(() => {
+      // 触发组件重新渲染
+      Object.assign(formData, { ...formData })
+    }, 100)
+    
+    // 额外延迟，确保富文本编辑器完全初始化
+    setTimeout(() => {
+      // 再次触发响应式更新
+      formData.priceNote = data.priceNote
+    }, 800)
   },
   {
-    immediate: true
+    immediate: true,
+    deep: true
   }
 )
 

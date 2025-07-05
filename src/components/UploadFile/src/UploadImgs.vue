@@ -144,9 +144,38 @@ watch(
     }
 
     fileList.value = [] // 保障数据为空
-    fileList.value.push(
-      ...(val as string[]).map((url) => ({ name: url.substring(url.lastIndexOf('/') + 1), url }))
-    )
+    if (Array.isArray(val)) {
+      val.forEach(url => {
+        if (typeof url === 'string') {
+          try {
+            // 安全地获取文件名
+            let fileName = url
+            if (url.includes('/')) {
+              fileName = url.substring(url.lastIndexOf('/') + 1)
+            }
+            fileList.value.push({ name: fileName, url })
+          } catch (e) {
+            console.error('处理图片URL出错:', e, url)
+            fileList.value.push({ name: 'image', url }) // 添加默认名称
+          }
+        } else if (typeof url === 'object' && url !== null && 'url' in url) {
+          // 处理对象格式 {url: string}
+          fileList.value.push({ name: url.name || 'image', url: url.url })
+        }
+      })
+    } else if (typeof val === 'string' && val) {
+      // 单个字符串URL的情况
+      try {
+        let fileName = val
+        if (val.includes('/')) {
+          fileName = val.substring(val.lastIndexOf('/') + 1)
+        }
+        fileList.value.push({ name: fileName, url: val })
+      } catch (e) {
+        console.error('处理单个图片URL出错:', e)
+        fileList.value.push({ name: 'image', url: val })
+      }
+    }
   },
   { immediate: true, deep: true }
 )

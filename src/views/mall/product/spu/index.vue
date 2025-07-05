@@ -190,6 +190,14 @@
           >
             修改
           </el-button>
+          <el-button
+            v-hasPermi="['product:spu:create']"
+            link
+            type="success"
+            @click="handleCopyAdd(row)"
+          >
+            复制新增
+          </el-button>
           <template v-if="queryParams.tabType === 4">
             <el-button
               v-hasPermi="['product:spu:delete']"
@@ -401,6 +409,70 @@ const openForm = (id?: number) => {
 /** 查看商品详情 */
 const openDetail = (id: number) => {
   push({ name: 'ProductSpuDetail', params: { id } })
+}
+
+/** 复制新增商品 */
+const handleCopyAdd = async (row: any) => {
+  try {
+    // 二次确认
+    await message.confirm(`确认要复制"${row.name}"来新增商品吗？`)
+    // 获取商品详情
+    const spuDetail = await ProductSpuApi.getSpu(row.id)
+    // 清除ID，避免冲突
+    spuDetail.id = undefined
+    // 修改商品名称，添加"副本"标识
+    spuDetail.name = spuDetail.name
+    // 清除一些不应该复制的字段
+    spuDetail.createTime = undefined
+    spuDetail.salesCount = 0
+    spuDetail.browseCount = 0
+    spuDetail.status = 0 // 默认下架状态
+    
+    // 确保所有需要的字段都存在
+    if (spuDetail.notes === undefined || spuDetail.notes === null) {
+      spuDetail.notes = ''
+    }
+    if (spuDetail.data === undefined || spuDetail.data === null) {
+      spuDetail.data = ''
+    }
+    if (spuDetail.description === undefined || spuDetail.description === null) {
+      spuDetail.description = ''
+    }
+    if (spuDetail.priceNote === undefined || spuDetail.priceNote === null) {
+      spuDetail.priceNote = ''
+    }
+    
+    // 处理SKU数据
+    if (spuDetail.skus && spuDetail.skus.length > 0) {
+      spuDetail.skus.forEach((sku: any) => {
+        sku.id = undefined // 清除SKU ID
+        sku.spuId = undefined // 清除SPU关联ID
+        sku.salesCount = 0 // 重置销量
+      })
+    }
+    
+    // 输出获取到的详情数据，便于调试
+    console.log('复制商品详情数据:', JSON.stringify({
+      description: spuDetail.description,
+      notes: spuDetail.notes,
+      data: spuDetail.data,
+      priceNote: spuDetail.priceNote
+    }))
+    
+    // 使用sessionStorage存储复制的数据，而不是通过URL传递
+    const copyDataId = 'spu_copy_' + new Date().getTime()
+    sessionStorage.setItem(copyDataId, JSON.stringify(spuDetail))
+    
+    // 跳转到新增页面，只传递数据ID
+    push({ 
+      name: 'ProductSpuAdd', 
+      query: { 
+        copyDataId: copyDataId
+      }
+    })
+  } catch(error) {
+    console.error('复制新增商品失败:', error)
+  }
 }
 
 /** 导出按钮操作 */

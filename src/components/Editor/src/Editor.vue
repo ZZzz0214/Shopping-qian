@@ -21,14 +21,20 @@ const currentLocale = computed(() => localeStore.getCurrentLocale)
 i18nChangeLanguage(unref(currentLocale).lang)
 
 const props = defineProps({
-  editorId: propTypes.string.def('wangeEditor-1'),
+  editorId: propTypes.string.def(''),
   height: propTypes.oneOfType([Number, String]).def('750px'),
   editorConfig: {
     type: Object as PropType<Partial<IEditorConfig>>,
     default: () => undefined
   },
   readonly: propTypes.bool.def(false),
-  modelValue: propTypes.string.def('')
+  modelValue: propTypes.string.def(''),
+ 
+})
+
+// 生成唯一的编辑器ID
+const uniqueEditorId = computed(() => {
+  return props.editorId || `wangeditor-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
 })
 
 const queryParams = reactive({
@@ -55,9 +61,24 @@ watch(
   (val: string) => {
     if (val === unref(valueHtml)) return
     valueHtml.value = val
+    
+    // 如果编辑器已经创建，强制更新内容
+    if (editorRef.value) {
+      nextTick(() => {
+        try {
+          // 确保编辑器内容与传入的值同步
+          if (val && val !== editorRef.value.getHtml()) {
+            editorRef.value.setHtml(val)
+          }
+        } catch (error) {
+          console.warn('更新编辑器内容失败:', error)
+        }
+      })
+    }
   },
   {
-    immediate: true
+    immediate: true,
+    deep: true
   }
 )
 
@@ -71,6 +92,17 @@ watch(
 
 const handleCreated = (editor: IDomEditor) => {
   editorRef.value = editor
+  
+  // 编辑器创建完成后，如果有初始值，设置到编辑器中
+  if (props.modelValue && props.modelValue.trim()) {
+    nextTick(() => {
+      try {
+        editor.setHtml(props.modelValue)
+      } catch (error) {
+        console.warn('设置编辑器内容失败:', error)
+      }
+    })
+  }
 }
 
 // 编辑器配置
@@ -427,7 +459,13 @@ onBeforeUnmount(() => {
   const editor = unref(editorRef.value)
 
   // 销毁，并移除 editor
-  editor?.destroy()
+  if (editor) {
+    try {
+      editor.destroy()
+    } catch (error) {
+      console.warn('销毁编辑器失败:', error)
+    }
+  }
 })
 
 const getEditorRef = async (): Promise<IDomEditor> => {
@@ -442,17 +480,17 @@ defineExpose({
 
 <template>
   <div class="border-1 border-solid border-[var(--tags-view-border-color)] z-10">
-    <!-- 工具栏 -->
+        <!-- 工具栏 -->
     <Toolbar
       :editor="editorRef"
-      :editorId="editorId"
+      :editorId="uniqueEditorId"
       class="border-0 b-b-1 border-solid border-[var(--tags-view-border-color)]"
     />
     <!-- 编辑器 -->
     <Editor
       v-model="valueHtml"
       :defaultConfig="editorConfig"
-      :editorId="editorId"
+      :editorId="uniqueEditorId"
       :style="editorStyle"
       @on-change="handleChange"
       @on-created="handleCreated"
